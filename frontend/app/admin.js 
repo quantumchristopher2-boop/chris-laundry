@@ -1,60 +1,58 @@
 import { useState, useEffect } from "react";
 import { db } from "../config/firebase";
-import { collection, updateDoc, doc, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { collection, onSnapshot, updateDoc, doc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { fetchServices } from "../config/fetch-services";
 
 export default function AdminPage() {
   const [orders, setOrders] = useState([]);
-  const [services, setServices] = useState([
-    { id: "suit", name: "Suit", price: 5 },
-    { id: "casual_pair", name: "Casual Pair", price: 3 },
-    { id: "single_casual", name: "Single Casual Item", price: 1.5 },
-    { id: "gown_set", name: "Gown / Skirt & Blouse", price: 4 },
-    { id: "bed_cover", name: "Bed Cover", price: 6 },
-    { id: "duvet", name: "Duvet", price: 9 },
-    { id: "fan_pack", name: "Fan Pack", price: 2 },
-    { id: "laptop_bag", name: "Laptop Bag", price: 4 },
-    { id: "sneakers", name: "Sneakers", price: 3 },
-  ]);
-
-  const [filter, setFilter] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [services, setServices] = useState([]);
   const [primaryColor, setPrimaryColor] = useState("#00A99D");
   const [logoUrl, setLogoUrl] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filter, setFilter] = useState("all");
 
-  // Real-time orders
+  // Load services from JSON
+  useEffect(() => {
+    async function loadServices() {
+      const data = await fetchServices();
+      setServices(data);
+    }
+    loadServices();
+  }, []);
+
+  // Real-time orders from Firebase
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "orders"), (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      ordersData.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
-      setOrders(ordersData);
+      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
+      setOrders(data);
     });
     return () => unsubscribe();
   }, []);
 
+  // Mark order as completed
   const markCompleted = async (orderId) => {
     await updateDoc(doc(db, "orders", orderId), { status: "completed" });
   };
 
+  // Services management
   const addService = () => {
     const newId = `service_${Date.now()}`;
-    setServices([...services, { id: newId, name: "New Service", price: 0 }]);
+    setServices([...services, { id: newId, name: "New Service", price: 0, category: "misc", image: "" }]);
+  };
+
+  const updateService = (id, key, value) => {
+    setServices(services.map(s => s.id === id ? { ...s, [key]: key === "price" ? parseFloat(value) : value } : s));
   };
 
   const removeService = (id) => {
     setServices(services.filter(s => s.id !== id));
   };
 
-  const updateServicePrice = (id, price) => {
-    setServices(services.map(s => s.id === id ? { ...s, price: parseFloat(price) } : s));
-  };
-
+  // Filter orders
   const filteredOrders = orders.filter(order => {
     if (filter !== "all" && order.status !== filter) return false;
-    if (
-      searchTerm &&
-      !order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !order.phone.includes(searchTerm)
-    ) return false;
+    if (searchTerm && !order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) && !order.phone.includes(searchTerm)) return false;
     return true;
   });
 
@@ -100,39 +98,42 @@ export default function AdminPage() {
 
       {/* Orders */}
       {filteredOrders.length === 0 && <p style={{ textAlign: "center" }}>No orders found.</p>}
-      {filteredOrders.map(order => (
-        <div key={order.id} style={{
-          border: "1px solid #ccc",
-          borderRadius: "10px",
-          padding: "12px",
-          marginBottom: "12px",
-          boxShadow: order.status === "pending" ? `0 4px 8px ${primaryColor}33` : "0 1px 3px rgba(0,0,0,0.1)",
-          backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
-        }}>
-          <p><strong>{order.customerName}</strong> | {order.phone}</p>
-          <p>Service: {order.serviceId} x {order.quantity}</p>
-          <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
-          <p>Status: <strong>{order.status}</strong></p>
-          {order.status !== "completed" && (
-            <button
-              onClick={() => markCompleted(order.id)}
-              style={{
-                marginTop: "8px",
-                padding: "10px",
-                backgroundColor: primaryColor,
-                color: "#fff",
-                border: "none",
-                borderRadius: "6px",
-                fontWeight: "bold",
-                cursor: "pointer",
-                width: "100%"
-              }}
-            >
-              Mark Completed
-            </button>
-          )}
-        </div>
-      ))}
+      {filteredOrders.map(order => {
+        const service = services.find(s => s.id === order.serviceId);
+        return (
+          <div key={order.id} style={{
+            border: "1px solid #ccc",
+            borderRadius: "10px",
+            padding: "12px",
+            marginBottom: "12px",
+            boxShadow: order.status === "pending" ? `0 4px 8px ${primaryColor}33` : "0 1px 3px rgba(0,0,0,0.1)",
+            backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
+          }}>
+            <p><strong>{order.customerName}</strong> | {order.phone}</p>
+            <p>Service: {service?.name || order.serviceId} x {order.quantity}</p>
+            <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
+            <p>Status: <strong>{order.status}</strong></p>
+            {order.status !== "completed" && (
+              <button
+                onClick={() => markCompleted(order.id)}
+                style={{
+                  marginTop: "8px",
+                  padding: "10px",
+                  backgroundColor: primaryColor,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  width: "100%"
+                }}
+              >
+                Mark Completed
+              </button>
+            )}
+          </div>
+        );
+      })}
 
       {/* Service Management */}
       <section style={{ marginTop: "24px" }}>
@@ -142,14 +143,21 @@ export default function AdminPage() {
             <input
               type="text"
               value={service.name}
-              onChange={(e) => setServices(services.map(s => s.id === service.id ? { ...s, name: e.target.value } : s))}
+              onChange={(e) => updateService(service.id, "name", e.target.value)}
               style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
             />
             <input
               type="number"
               value={service.price}
-              onChange={(e) => updateServicePrice(service.id, e.target.value)}
+              onChange={(e) => updateService(service.id, "price", e.target.value)}
               style={{ padding: "6px", width: "80px", borderRadius: "6px", border: "1px solid #ccc" }}
+            />
+            <input
+              type="text"
+              value={service.image}
+              onChange={(e) => updateService(service.id, "image", e.target.value)}
+              placeholder="Image URL"
+              style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
             />
             <button
               onClick={() => removeService(service.id)}
