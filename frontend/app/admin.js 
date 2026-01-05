@@ -1,0 +1,164 @@
+import { useState, useEffect } from "react";
+import { db } from "../config/firebase";
+import { collection, updateDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { services } from "../config/services";
+
+export default function AdminPage() {
+  const [orders, setOrders] = useState([]);
+  const [filter, setFilter] = useState("all"); // all / pending / completed
+  const [searchTerm, setSearchTerm] = useState("");
+  const [priceEdits, setPriceEdits] = useState({}); // for live price edits
+
+  // Load orders in real-time
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "orders"), (snapshot) => {
+      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      ordersData.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
+      setOrders(ordersData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Mark order as completed
+  const markCompleted = async (orderId) => {
+    await updateDoc(doc(db, "orders", orderId), { status: "completed" });
+  };
+
+  // Handle price change locally
+  const handlePriceChange = (serviceId, newPrice) => {
+    setPriceEdits(prev => ({ ...prev, [serviceId]: newPrice }));
+  };
+
+  // Apply price changes to services.js (local only for now)
+  const applyPriceChange = (serviceId) => {
+    const service = services.find(s => s.id === serviceId);
+    if (service && priceEdits[serviceId] !== undefined) {
+      service.price = parseFloat(priceEdits[serviceId]);
+      alert(`Price updated: ${service.name} = $${service.price.toFixed(2)}`);
+    }
+  };
+
+  // Filter and search orders
+  const filteredOrders = orders.filter(order => {
+    if (filter !== "all" && order.status !== filter) return false;
+    if (
+      searchTerm &&
+      !order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !order.phone.includes(searchTerm)
+    ) return false;
+    return true;
+  });
+
+  return (
+    <main style={{ padding: "24px", maxWidth: "480px", margin: "0 auto", fontFamily: "sans-serif" }}>
+      <h1 style={{ textAlign: "center", marginBottom: "24px" }}>Chris Laundry Admin Panel</h1>
+
+      {/* Search & Filter */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+        <input
+          type="text"
+          placeholder="Search by name or phone"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ flex: 1, padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
+        />
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
+        >
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+
+      {/* Orders List */}
+      {filteredOrders.length === 0 && <p style={{ textAlign: "center" }}>No orders found.</p>}
+
+      {filteredOrders.map(order => {
+        const service = services.find(s => s.id === order.serviceId);
+        return (
+          <div
+            key={order.id}
+            style={{
+              border: "1px solid #ccc",
+              borderRadius: "10px",
+              padding: "12px",
+              marginBottom: "12px",
+              boxShadow: order.status === "pending" ? "0 4px 8px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.1)",
+              backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
+            }}
+          >
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <img
+                src={service?.image}
+                alt={service?.name}
+                width="50"
+                height="50"
+                style={{ borderRadius: "6px" }}
+              />
+              <div style={{ flex: 1 }}>
+                <strong>{service?.name}</strong> (${service?.price.toFixed(2)}) x {order.quantity}
+                <p>{order.customerName} | {order.phone}</p>
+                <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
+                <p>Status: <strong>{order.status}</strong></p>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" }}>
+              {order.status !== "completed" && (
+                <button
+                  onClick={() => markCompleted(order.id)}
+                  style={{
+                    flex: 1,
+                    padding: "10px",
+                    backgroundColor: "#00A99D",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "6px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  Mark Completed
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Service Price Editor */}
+      <section style={{ marginTop: "24px" }}>
+        <h2 style={{ marginBottom: "12px" }}>Edit Service Prices</h2>
+        {services.map(service => (
+          <div key={service.id} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+            <span style={{ flex: 1 }}>{service.name}</span>
+            <input
+              type="number"
+              value={priceEdits[service.id] ?? service.price}
+              onChange={(e) => handlePriceChange(service.id, e.target.value)}
+              style={{ padding: "6px", width: "80px", borderRadius: "6px", border: "1px solid #ccc" }}
+            />
+            <button
+              onClick={() => applyPriceChange(service.id)}
+              style={{
+                padding: "6px 12px",
+                backgroundColor: "#00A99D",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+            >
+              Update
+            </button>
+          </div>
+        ))}
+      </section>
+    </main>
+  );
+}
