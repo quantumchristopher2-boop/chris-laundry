@@ -1,179 +1,50 @@
-import { useState, useEffect } from "react";
-import { db } from "../config/firebase";
-import { collection, onSnapshot, updateDoc, doc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
-import { fetchServices } from "../config/fetch-services";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "@/config/firebase";
 
 export default function AdminPage() {
-  const [orders, setOrders] = useState([]);
-  const [services, setServices] = useState([]);
-  const [primaryColor, setPrimaryColor] = useState("#00A99D");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filter, setFilter] = useState("all");
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
 
-  // Load services from JSON
   useEffect(() => {
-    async function loadServices() {
-      const data = await fetchServices();
-      setServices(data);
-    }
-    loadServices();
-  }, []);
-
-  // Real-time orders from Firebase
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "orders"), (snapshot) => {
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
-      setOrders(data);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        router.replace("/admin/login");
+      } else {
+        setLoading(false);
+      }
     });
+
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
-  // Mark order as completed
-  const markCompleted = async (orderId) => {
-    await updateDoc(doc(db, "orders", orderId), { status: "completed" });
-  };
-
-  // Services management
-  const addService = () => {
-    const newId = `service_${Date.now()}`;
-    setServices([...services, { id: newId, name: "New Service", price: 0, category: "misc", image: "" }]);
-  };
-
-  const updateService = (id, key, value) => {
-    setServices(services.map(s => s.id === id ? { ...s, [key]: key === "price" ? parseFloat(value) : value } : s));
-  };
-
-  const removeService = (id) => {
-    setServices(services.filter(s => s.id !== id));
-  };
-
-  // Filter orders
-  const filteredOrders = orders.filter(order => {
-    if (filter !== "all" && order.status !== filter) return false;
-    if (searchTerm && !order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) && !order.phone.includes(searchTerm)) return false;
-    return true;
-  });
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: "center" }}>
+        <p>Loading admin dashboard...</p>
+      </div>
+    );
+  }
 
   return (
-    <main style={{ padding: "24px", maxWidth: "480px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      {/* Logo & Color */}
-      <div style={{ textAlign: "center", marginBottom: "24px" }}>
-        {logoUrl ? <img src={logoUrl} alt="Logo" style={{ width: "100px", borderRadius: "12px" }} /> : <h2>Chris Laundry</h2>}
-        <input
-          type="text"
-          placeholder="Paste Logo URL"
-          value={logoUrl}
-          onChange={(e) => setLogoUrl(e.target.value)}
-          style={{ width: "100%", marginTop: "8px", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
-        />
-        <input
-          type="color"
-          value={primaryColor}
-          onChange={(e) => setPrimaryColor(e.target.value)}
-          style={{ marginTop: "8px", width: "100%", height: "36px", border: "none", cursor: "pointer", borderRadius: "6px" }}
-        />
-      </div>
+    <main style={{ padding: 24 }}>
+      <h1>Admin Dashboard</h1>
 
-      {/* Search & Filter */}
-      <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-        <input
-          type="text"
-          placeholder="Search by name or phone"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ flex: 1, padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
-        />
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{ padding: "10px", borderRadius: "6px", border: "1px solid #ccc" }}
-        >
-          <option value="all">All</option>
-          <option value="pending">Pending</option>
-          <option value="completed">Completed</option>
-        </select>
-      </div>
+      {/* ADMIN CONTROLS GO BELOW */}
+      {/* Services, Prices, Orders, Content, etc */}
 
-      {/* Orders */}
-      {filteredOrders.length === 0 && <p style={{ textAlign: "center" }}>No orders found.</p>}
-      {filteredOrders.map(order => {
-        const service = services.find(s => s.id === order.serviceId);
-        return (
-          <div key={order.id} style={{
-            border: "1px solid #ccc",
-            borderRadius: "10px",
-            padding: "12px",
-            marginBottom: "12px",
-            boxShadow: order.status === "pending" ? `0 4px 8px ${primaryColor}33` : "0 1px 3px rgba(0,0,0,0.1)",
-            backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
-          }}>
-            <p><strong>{order.customerName}</strong> | {order.phone}</p>
-            <p>Service: {service?.name || order.serviceId} x {order.quantity}</p>
-            <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
-            <p>Status: <strong>{order.status}</strong></p>
-            {order.status !== "completed" && (
-              <button
-                onClick={() => markCompleted(order.id)}
-                style={{
-                  marginTop: "8px",
-                  padding: "10px",
-                  backgroundColor: primaryColor,
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "6px",
-                  fontWeight: "bold",
-                  cursor: "pointer",
-                  width: "100%"
-                }}
-              >
-                Mark Completed
-              </button>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Service Management */}
-      <section style={{ marginTop: "24px" }}>
-        <h2>Manage Services</h2>
-        {services.map(service => (
-          <div key={service.id} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-            <input
-              type="text"
-              value={service.name}
-              onChange={(e) => updateService(service.id, "name", e.target.value)}
-              style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-            <input
-              type="number"
-              value={service.price}
-              onChange={(e) => updateService(service.id, "price", e.target.value)}
-              style={{ padding: "6px", width: "80px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-            <input
-              type="text"
-              value={service.image}
-              onChange={(e) => updateService(service.id, "image", e.target.value)}
-              placeholder="Image URL"
-              style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
-            <button
-              onClick={() => removeService(service.id)}
-              style={{ padding: "6px 12px", backgroundColor: "#e74c3c", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={addService}
-          style={{ marginTop: "12px", padding: "10px", backgroundColor: primaryColor, color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", width: "100%" }}
-        >
-          Add New Service
-        </button>
-      </section>
+      <button
+        style={{ marginTop: 20 }}
+        onClick={async () => {
+          await signOut(auth);
+          router.push("/admin/login");
+        }}
+      >
+        Logout
+      </button>
     </main>
   );
 }
