@@ -1,15 +1,27 @@
 import { useState, useEffect } from "react";
 import { db } from "../config/firebase";
-import { collection, updateDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
-import { services } from "../config/services";
+import { collection, updateDoc, doc, onSnapshot, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
 export default function AdminPage() {
   const [orders, setOrders] = useState([]);
-  const [filter, setFilter] = useState("all"); // all / pending / completed
-  const [searchTerm, setSearchTerm] = useState("");
-  const [priceEdits, setPriceEdits] = useState({}); // for live price edits
+  const [services, setServices] = useState([
+    { id: "suit", name: "Suit", price: 5 },
+    { id: "casual_pair", name: "Casual Pair", price: 3 },
+    { id: "single_casual", name: "Single Casual Item", price: 1.5 },
+    { id: "gown_set", name: "Gown / Skirt & Blouse", price: 4 },
+    { id: "bed_cover", name: "Bed Cover", price: 6 },
+    { id: "duvet", name: "Duvet", price: 9 },
+    { id: "fan_pack", name: "Fan Pack", price: 2 },
+    { id: "laptop_bag", name: "Laptop Bag", price: 4 },
+    { id: "sneakers", name: "Sneakers", price: 3 },
+  ]);
 
-  // Load orders in real-time
+  const [filter, setFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("#00A99D");
+  const [logoUrl, setLogoUrl] = useState("");
+
+  // Real-time orders
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "orders"), (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -19,26 +31,23 @@ export default function AdminPage() {
     return () => unsubscribe();
   }, []);
 
-  // Mark order as completed
   const markCompleted = async (orderId) => {
     await updateDoc(doc(db, "orders", orderId), { status: "completed" });
   };
 
-  // Handle price change locally
-  const handlePriceChange = (serviceId, newPrice) => {
-    setPriceEdits(prev => ({ ...prev, [serviceId]: newPrice }));
+  const addService = () => {
+    const newId = `service_${Date.now()}`;
+    setServices([...services, { id: newId, name: "New Service", price: 0 }]);
   };
 
-  // Apply price changes to services.js (local only for now)
-  const applyPriceChange = (serviceId) => {
-    const service = services.find(s => s.id === serviceId);
-    if (service && priceEdits[serviceId] !== undefined) {
-      service.price = parseFloat(priceEdits[serviceId]);
-      alert(`Price updated: ${service.name} = $${service.price.toFixed(2)}`);
-    }
+  const removeService = (id) => {
+    setServices(services.filter(s => s.id !== id));
   };
 
-  // Filter and search orders
+  const updateServicePrice = (id, price) => {
+    setServices(services.map(s => s.id === id ? { ...s, price: parseFloat(price) } : s));
+  };
+
   const filteredOrders = orders.filter(order => {
     if (filter !== "all" && order.status !== filter) return false;
     if (
@@ -51,7 +60,23 @@ export default function AdminPage() {
 
   return (
     <main style={{ padding: "24px", maxWidth: "480px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      <h1 style={{ textAlign: "center", marginBottom: "24px" }}>Chris Laundry Admin Panel</h1>
+      {/* Logo & Color */}
+      <div style={{ textAlign: "center", marginBottom: "24px" }}>
+        {logoUrl ? <img src={logoUrl} alt="Logo" style={{ width: "100px", borderRadius: "12px" }} /> : <h2>Chris Laundry</h2>}
+        <input
+          type="text"
+          placeholder="Paste Logo URL"
+          value={logoUrl}
+          onChange={(e) => setLogoUrl(e.target.value)}
+          style={{ width: "100%", marginTop: "8px", padding: "8px", borderRadius: "6px", border: "1px solid #ccc" }}
+        />
+        <input
+          type="color"
+          value={primaryColor}
+          onChange={(e) => setPrimaryColor(e.target.value)}
+          style={{ marginTop: "8px", width: "100%", height: "36px", border: "none", cursor: "pointer", borderRadius: "6px" }}
+        />
+      </div>
 
       {/* Search & Filter */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
@@ -73,91 +98,73 @@ export default function AdminPage() {
         </select>
       </div>
 
-      {/* Orders List */}
+      {/* Orders */}
       {filteredOrders.length === 0 && <p style={{ textAlign: "center" }}>No orders found.</p>}
-
-      {filteredOrders.map(order => {
-        const service = services.find(s => s.id === order.serviceId);
-        return (
-          <div
-            key={order.id}
-            style={{
-              border: "1px solid #ccc",
-              borderRadius: "10px",
-              padding: "12px",
-              marginBottom: "12px",
-              boxShadow: order.status === "pending" ? "0 4px 8px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.1)",
-              backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
-            }}
-          >
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              <img
-                src={service?.image}
-                alt={service?.name}
-                width="50"
-                height="50"
-                style={{ borderRadius: "6px" }}
-              />
-              <div style={{ flex: 1 }}>
-                <strong>{service?.name}</strong> (${service?.price.toFixed(2)}) x {order.quantity}
-                <p>{order.customerName} | {order.phone}</p>
-                <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
-                <p>Status: <strong>{order.status}</strong></p>
-              </div>
-            </div>
-
-            {/* Buttons */}
-            <div style={{ display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" }}>
-              {order.status !== "completed" && (
-                <button
-                  onClick={() => markCompleted(order.id)}
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    backgroundColor: "#00A99D",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "6px",
-                    fontWeight: "bold",
-                    cursor: "pointer"
-                  }}
-                >
-                  Mark Completed
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Service Price Editor */}
-      <section style={{ marginTop: "24px" }}>
-        <h2 style={{ marginBottom: "12px" }}>Edit Service Prices</h2>
-        {services.map(service => (
-          <div key={service.id} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
-            <span style={{ flex: 1 }}>{service.name}</span>
-            <input
-              type="number"
-              value={priceEdits[service.id] ?? service.price}
-              onChange={(e) => handlePriceChange(service.id, e.target.value)}
-              style={{ padding: "6px", width: "80px", borderRadius: "6px", border: "1px solid #ccc" }}
-            />
+      {filteredOrders.map(order => (
+        <div key={order.id} style={{
+          border: "1px solid #ccc",
+          borderRadius: "10px",
+          padding: "12px",
+          marginBottom: "12px",
+          boxShadow: order.status === "pending" ? `0 4px 8px ${primaryColor}33` : "0 1px 3px rgba(0,0,0,0.1)",
+          backgroundColor: order.status === "pending" ? "#fefefe" : "#f5f5f5"
+        }}>
+          <p><strong>{order.customerName}</strong> | {order.phone}</p>
+          <p>Service: {order.serviceId} x {order.quantity}</p>
+          <p>Pickup: {order.pickup ? "Yes" : "No"} | Delivery: {order.delivery ? "Yes" : "No"}</p>
+          <p>Status: <strong>{order.status}</strong></p>
+          {order.status !== "completed" && (
             <button
-              onClick={() => applyPriceChange(service.id)}
+              onClick={() => markCompleted(order.id)}
               style={{
-                padding: "6px 12px",
-                backgroundColor: "#00A99D",
+                marginTop: "8px",
+                padding: "10px",
+                backgroundColor: primaryColor,
                 color: "#fff",
                 border: "none",
                 borderRadius: "6px",
                 fontWeight: "bold",
-                cursor: "pointer"
+                cursor: "pointer",
+                width: "100%"
               }}
             >
-              Update
+              Mark Completed
+            </button>
+          )}
+        </div>
+      ))}
+
+      {/* Service Management */}
+      <section style={{ marginTop: "24px" }}>
+        <h2>Manage Services</h2>
+        {services.map(service => (
+          <div key={service.id} style={{ display: "flex", gap: "8px", marginBottom: "8px", alignItems: "center" }}>
+            <input
+              type="text"
+              value={service.name}
+              onChange={(e) => setServices(services.map(s => s.id === service.id ? { ...s, name: e.target.value } : s))}
+              style={{ flex: 1, padding: "6px", borderRadius: "6px", border: "1px solid #ccc" }}
+            />
+            <input
+              type="number"
+              value={service.price}
+              onChange={(e) => updateServicePrice(service.id, e.target.value)}
+              style={{ padding: "6px", width: "80px", borderRadius: "6px", border: "1px solid #ccc" }}
+            />
+            <button
+              onClick={() => removeService(service.id)}
+              style={{ padding: "6px 12px", backgroundColor: "#e74c3c", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}
+            >
+              Remove
             </button>
           </div>
         ))}
+        <button
+          onClick={addService}
+          style={{ marginTop: "12px", padding: "10px", backgroundColor: primaryColor, color: "#fff", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", width: "100%" }}
+        >
+          Add New Service
+        </button>
       </section>
     </main>
   );
